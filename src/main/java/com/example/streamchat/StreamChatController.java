@@ -1,11 +1,53 @@
 package com.example.streamchat;
 
+import org.springframework.http.MediaType;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
 @RestController
-public class StreamChatAPIController {
+public class StreamChatController {
 	private MessageService messageService = new MessageService();
+
+	// TODO: use a real templating engine
+	@GetMapping("/")
+	public String getIndex() {
+		return """
+			<html>
+			<head>
+				<title>Stream Chat</title>
+			</head>
+			<body>
+				<iframe src="/getStream"></iframe>
+				<iframe src="/submit"></iframe>
+			</body>
+			</html>
+		""";
+	}
+
+	private String submitTemplate = """
+		<html>
+		<body>
+			<form action="/submit" method="post">
+				<input type="textarea" name="message"></input>
+				<input type="submit" value="Send"></input>
+			</form>
+		</body>
+		</html>
+	""";
+
+	@GetMapping("/submit")
+	public String getSubmit() {
+		return submitTemplate;
+	}
+
+	@RequestMapping(value="/submit", method = RequestMethod.POST,
+		consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+	public String postSubmit(@RequestBody MultiValueMap<String, String> formData) throws InterruptedException {
+		var message = formData.get("message").getFirst();
+		messageService.addMessage(new Message(message));
+		return submitTemplate;
+	}
 
 	@GetMapping("/add")
 	public String add() throws InterruptedException {
@@ -31,7 +73,7 @@ public class StreamChatAPIController {
 		);
 
 		var renderedMessages = messageService.getStream().map(message ->
-			message.isEmpty() ? "" : "<div>" + message.getId() + "</div>"
+			message.isEmpty() ? "" : "<div>" + message.getId() + ": " + message.getMessage() + "</div>"
 		);
 
 		return paddedHeader.concatWith(renderedMessages);
