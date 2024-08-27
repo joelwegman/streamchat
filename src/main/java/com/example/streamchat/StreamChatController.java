@@ -12,24 +12,31 @@ import java.util.TreeMap;
 @RestController
 public class StreamChatController {
 	// These must be of Object until I find a way to cast from within the
-	// .create() lambda.
+	// .create() lambda used to define q.
 	private FluxSink<Object> qSink;
-	private Flux<Object> q = Flux.create(sink -> { sink.next(new Message()); qSink = sink; }).share();
+	private Flux<Object> q;
 
 	// These must be of String since they need to handle arbitrary HTML.
 	private HashMap<String, FluxSink<String>> streamSinks = new HashMap<>();
 
 	// temporary, before real DB
-	private TreeMap<String, Message> db = new TreeMap<>((a, b) -> a == null ? 1 : a.compareTo(b) * -1);
+	private TreeMap<String, Message> db =
+		new TreeMap<>((a, b) -> a == null ? 1 : a.compareTo(b) * -1);
 
 	public StreamChatController() {
-		// Ensure that qSink is set before anything needs it.
+		// Ensure that qSink is set before anything needs it by adding a dummy
+		// Message to q and immediately blocking for it.
+		q = Flux.create(sink -> {
+			sink.next(new Message());
+			qSink = sink;
+		}).share();
 		q.blockFirst();
 
 		// As Messages become available from q, add them to db.
 		q.subscribe(m -> {
 			var message = (Message)m;
-			db.put(message.getId(), message);
+			if (!message.isEmpty())
+				db.put(message.getId(), message);
 		});
 	}
 
@@ -114,13 +121,13 @@ public class StreamChatController {
 		value="/submit",
 		method = RequestMethod.POST,
 		consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-	public String postSubmit(@RequestBody MultiValueMap<String, String> formData) {
-		var message = new Message(formData.get("message").getFirst());
+	public String postSubmit(@RequestBody MultiValueMap<String, String> form) {
+		var message = new Message(form.get("message").getFirst());
 		qSink.next(message);
 		return submitTemplate;
 	}
 
-	@RequestMapping(value = "/pageBefore", produces = "image/svg")
+	@RequestMapping(value = "/pageBefore", produces = "image/svg+xml")
 	public String pageBefore(
 		@RequestParam String streamId,
 		@RequestParam String messageId,
@@ -128,7 +135,6 @@ public class StreamChatController {
 	) {
 		// exclude the given key from the results
 		var newId = db.containsKey(messageId) ? db.higherKey(messageId) : messageId;
-
 		var sink = streamSinks.get(streamId);
 		var messages = db.tailMap(newId).sequencedValues().stream().limit(20).toList().reversed();
 		if (!messages.isEmpty()) {
@@ -149,9 +155,9 @@ public class StreamChatController {
 		});
 		sink.next("</div>");
 
-		// TODO: valid SVG of negligible (ideally zero) visual impact while
-		// still causing a GET
-		return "<svg></svg>";
+		return """
+			<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>
+		""";
 	}
 
 	// NOTE: There's currently a resource leak here.  Elements should be
@@ -168,9 +174,9 @@ public class StreamChatController {
 	// since last pass, it can remove the item from the map
 	@GetMapping("/stream")
 	public Flux<String> stream() {
-		var uuid = Generators.timeBasedEpochRandomGenerator().generate().toString();
+		var streamId = Generators.timeBasedEpochRandomGenerator().generate().toString();
 		return Flux.create(sink -> {
-			streamSinks.put(uuid, sink);
+			streamSinks.put(streamId, sink);
 			sink.next("""
 				<!DOCTYPE html>
 				<html>
@@ -192,7 +198,7 @@ public class StreamChatController {
 					<div class="messageContainer">
 			""" + String.format("""
 				<img src="/pageBefore?streamId=%s&messageId=%s&flexOrder=-1">
-			""", uuid, uuid));
+			""", streamId, streamId));
 			q.subscribe(x -> sink.next("<div>" + x.toString() + "</div>"));
 		});
 	}
