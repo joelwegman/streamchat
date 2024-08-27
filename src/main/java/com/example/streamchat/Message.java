@@ -12,14 +12,14 @@ public class Message {
 	// NOTE: empty messages are filtered out
 	// TODO: only allow empty message creation via a subclass for more safety?
 	public Message() {
-		UUID uuid = Generators.timeBasedEpochRandomGenerator().generate();
+		var uuid = Generators.timeBasedEpochRandomGenerator().generate();
 		this.id = uuid.toString();
 		this.message = "";
 		this.channelId = "";
 	}
 
 	public Message(String message, String channelId) {
-		UUID uuid = Generators.timeBasedEpochRandomGenerator().generate();
+		var uuid = Generators.timeBasedEpochRandomGenerator().generate();
 		this.id = uuid.toString();
 		this.message = message;
 		this.channelId = channelId;
@@ -46,7 +46,12 @@ public class Message {
 	}
 
 	public Timestamp getTimestamp() {
-		UUID id = UUID.fromString(this.id);
+		var id = UUID.fromString(this.id);
 		return new Timestamp(id.getMostSignificantBits() >> (Long.SIZE - 48));
+	}
+
+	@Override
+	public String toString() {
+		return message;
 	}
 }
