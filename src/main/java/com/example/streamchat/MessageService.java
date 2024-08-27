@@ -1,7 +1,6 @@
 package com.example.streamchat;
 
 import reactor.core.publisher.Flux;
-
 import java.time.Duration;
 import java.util.TreeMap;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -21,9 +20,19 @@ import java.util.concurrent.BlockingQueue;
 
 public class MessageService {
 	// temporary, before real DB
-	private TreeMap<String, Message> db = new TreeMap<>((a, b) ->
-		a.compareTo(b) * -1
-	);
+	private TreeMap<String, Message> db = new TreeMap<>((a, b) -> a == null ? 1 : a.compareTo(b) * -1);
+
+	public MessageService() {
+		for (int i = 0; i < 100; i++) {
+			try {
+				var message = new Message("message" + i);
+				addMessage(message);
+				Thread.sleep(1);
+			} catch (InterruptedException e) {
+				throw new RuntimeException(e);
+			}
+		}
+	}
 
 	// This creates an infinite Flux<Message>, which sends new values as
 	// they're added to a BlockingQueue.
@@ -49,8 +58,9 @@ public class MessageService {
 		// evaluation as soon as it receives data was to use Flux.interval()
 		// with a duration of zero, taking only the first one, and mapping that
 		// to an empty message that can be filtered out by the controller
+		// (also, when something else gets prepended, a non-zero duration is necessary)
 		// TODO: find a cleaner way of doing this
-		var dummy = Flux.interval(Duration.ofSeconds(0)).take(1).map(seq -> new Message());
+		var dummy = Flux.interval(Duration.ofMillis(100)).take(1).map(_ -> new Message());
 		return dummy.concatWith(stream);
 	}
 
@@ -68,8 +78,7 @@ public class MessageService {
 	}
 
 	public Flux<Message> getPageBefore(String id) {
-		return Flux.fromStream(
-			db.navigableKeySet().tailSet(id, false).stream().limit(20).map(key -> db.get(key))
-		);
+		var newId = db.containsKey(id) ? db.higherKey(id) : id;
+		return Flux.fromIterable(db.tailMap(newId).sequencedValues().stream().limit(20).toList().reversed());
 	}
 }

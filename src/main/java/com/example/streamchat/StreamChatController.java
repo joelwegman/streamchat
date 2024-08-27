@@ -13,23 +13,68 @@ public class StreamChatController {
 	@GetMapping("/")
 	public String getIndex() {
 		return """
+			<!DOCTYPE html>
 			<html>
 			<head>
 				<title>Stream Chat</title>
+				<style>
+					html, body {
+						margin: 0;
+						height: 100%;
+						overflow: hidden;
+					}
+					main {
+						display: grid;
+						margin: .5em;
+						height: calc(100% - 1em);
+						grid-template-rows: auto min-content;
+						iframe {
+							width: 100%;
+							height: 100%;
+							border: none;
+						}
+						#channel {
+							height: 100%;
+						}
+						#submit {
+							height: 2.5em;
+						}
+					}
+				</style>
 			</head>
 			<body>
-				<iframe src="/getStream"></iframe>
-				<iframe src="/submit"></iframe>
+				<main>
+					<section id="channel">
+						<iframe src="/getStream"></iframe>
+					</section>
+					<section id="submit">
+						<iframe src="/submit"></iframe>
+					</section>
+				</main>
 			</body>
 			</html>
 		""";
 	}
 
 	private String submitTemplate = """
+		<!DOCTYPE html>
 		<html>
+		<head>
+			<style>
+				html, body {
+					margin: 0;
+					overflow: hidden;
+				}
+				form {
+					margin: 0.5em;
+					display: grid;
+					grid-template-columns: auto min-content;
+				}
+			</style>
+		</head>
 		<body>
 			<form action="/submit" method="post">
-				<input type="textarea" name="message"></input>
+				<input type="textarea" name="message" autofocus></input>
 				<input type="submit" value="Send"></input>
 			</form>
 		</body>
@@ -56,26 +101,62 @@ public class StreamChatController {
 		return "this should be a form submission template?";
 	}
 
+	private String renderMessage(Message message) {
+		return message.isEmpty() ?
+			"" :
+			"<div>" + message.getId() + ": " + message.getMessage() + "</div>";
+	}
+
 	@GetMapping("/getPageBefore/{id}")
 	public Flux<String> getPageBefore(@PathVariable("id") String id) {
-		return messageService.getPageBefore(id).map(message -> "<div>" + message.getId() + "</div>");
+		var messages = messageService.getPageBefore(id);
+		var renderedMessages = messages.map(this::renderMessage);
+		var oldest = messages.blockFirst();
+		var prefix = Flux.just("""
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<style>
+					html, body, iframe {
+						border: none;
+						width: 100%;
+						height: fit-content;
+						//overflow: hidden;
+						margin: 0;
+					}
+				</style>
+			</head>
+			<body>
+		""");
+		if (oldest != null)
+			prefix = prefix.concatWith(Flux.just("<iframe load=\"lazy\" src=\"/getPageBefore/" + oldest.getId() + "\"></iframe>"));
+		var postfix = Flux.just("</body></html>");
+		return prefix.concatWith(renderedMessages).concatWith(postfix);
 	}
 
 	// Stream rendered messages as they're received.  Inspired by
 	// https://github.com/niutech/phooos and the articles it references.
 	@GetMapping("/getStream")
 	public Flux<String> getStream() {
-		// Safari and Firefox appear to require a minimum number of bytes
-		// before they start rendering, so add that to the beginning:
-		var paddedHeader = Flux.just(
-			new String(new char[1024]).replace("\0", " ") +
-			"<div>header</div>"
-		);
-
-		var renderedMessages = messageService.getStream().map(message ->
-			message.isEmpty() ? "" : "<div>" + message.getId() + ": " + message.getMessage() + "</div>"
-		);
-
-		return paddedHeader.concatWith(renderedMessages);
+		var now = new Message();
+		var previous = getPageBefore(now.getId());
+		var prefix = Flux.just("""
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<style>
+					html, body, iframe {
+						border: none;
+						width: 100%;
+						height: fit-content;
+						margin: 0;
+					}
+				</style>
+			</head>
+			<body>
+		""");
+		var renderedStream = messageService.getStream().map(this::renderMessage);
+		var postFix = Flux.just("</body></html>");
+		return prefix.concatWith(previous).concatWith(renderedStream).concatWith(postFix);
 	}
 }

@@ -12,7 +12,10 @@ public class Message {
 	// NOTE: empty messages are filtered out
 	// TODO: only allow empty message creation via a subclass for more safety?
 	public Message() {
-		message = "";
+		UUID uuid = Generators.timeBasedEpochRandomGenerator().generate();
+		this.id = uuid.toString();
+		this.message = "";
+		this.channelId = "";
 	}
 
 	public Message(String message, String channelId) {
