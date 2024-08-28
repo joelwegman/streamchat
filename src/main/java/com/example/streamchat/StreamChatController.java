@@ -64,6 +64,9 @@ public class StreamChatController {
 							height: 100%;
 							border: none;
 						}
+						#sentinelTarget {
+							display: none;
+						}
 						#channel {
 							height: 100%;
 						}
@@ -75,6 +78,7 @@ public class StreamChatController {
 			</head>
 			<body>
 				<main>
+					<iframe id="sentinelTarget" name="sentinelTarget"></iframe>
 					<section id="channel">
 						<iframe src="/stream"></iframe>
 					</section>
@@ -135,17 +139,28 @@ public class StreamChatController {
 	) {
 		// exclude the given key from the results
 		var newId = db.containsKey(messageId) ? db.higherKey(messageId) : messageId;
+
 		var sink = streamSinks.get(streamId);
 		var messages = db.tailMap(newId).sequencedValues().stream().limit(20).toList().reversed();
-		if (!messages.isEmpty()) {
-			var firstId = messages.getFirst().getId();
+		var firstId = messages.isEmpty() ? null : messages.getFirst().getId();
+		if (firstId != null && db.higherKey(firstId) != null) {
+			var link = String.format("""
+				/pageBefore?streamId=%s&messageId=%s&flexOrder=%d
+			""", streamId, firstId, flexOrder - 1).trim();
 			sink.next(String.format("""
-				<img src="/pageBefore?streamId=%s&messageId=%s&flexOrder=%d">
-			""", streamId, firstId, flexOrder - 1));
+				<input class="sentinel" type="radio" id="%s" name="sentinel" checked style="order:%d;"/>
+				<label for="%s" style="order:%d;">
+					<a href="%s" target="sentinelTarget">Click to load more...</a>
+				</label>
+			""", newId, flexOrder - 1, streamId, flexOrder - 1, link));
 		} else {
 			sink.next(String.format("""
-				<div class="page" style="order:%d;">(start)</div>
+				<input class="sentinel final" type="radio" checked style="order:%d;"/>
 			""", flexOrder));
+			sink.next(String.format("""
+				<input class="sentinel final" type="radio" id="%s" name="sentinel" checked style="order:%d;"/>
+				<label for="%s" style="order:%d;">(start)</label>
+			""", newId, flexOrder - 1, streamId, flexOrder - 1));
 		}
 		sink.next(String.format("""
 			<div class="page" style="order:%d;">
@@ -177,6 +192,10 @@ public class StreamChatController {
 		var streamId = Generators.timeBasedEpochRandomGenerator().generate().toString();
 		return Flux.create(sink -> {
 			streamSinks.put(streamId, sink);
+			// Safari seems to require at least 512 bytes of input to render
+			for (int i = 0; i < 512; i++) {
+				sink.next("\n");
+			}
 			sink.next("""
 				<!DOCTYPE html>
 				<html>
@@ -191,6 +210,13 @@ public class StreamChatController {
 						.messageContainer {
 							display: flex;
 							flex-direction: column;
+							overflow-anchor: auto;
+						}
+						.sentinel {
+							display: none;
+						}
+						.sentinel:not(:checked) + label {
+							display: none;
 						}
 					</style>
 				</head>
